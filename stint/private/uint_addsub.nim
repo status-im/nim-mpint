@@ -1,5 +1,5 @@
 # Stint
-# Copyright 2018 Status Research & Development GmbH
+# Copyright 2018-Present Status Research & Development GmbH
 # Licensed under either of
 #
 #  * Apache License, version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
@@ -7,36 +7,62 @@
 #
 # at your option. This file may not be copied, modified, or distributed except according to those terms.
 
-import  ./conversion, ./initialization,
-        ./datatypes,
-        ./uint_comparison,
-        ./uint_bitwise_ops
+import
+  # Status lib
+  stew/bitops2,
+  # Internal
+  ./datatypes,
+  ./primitives/addcarry_subborrow
 
-# ############ Addition & Substraction ############ #
+# Addsub
+# --------------------------------------------------------
+{.push raises: [], inline, noInit, gcsafe.}
 
-func `+`*(x, y: UintImpl): UintImpl {.inline.}
-  # Forward declaration
+func sum*(r: var Stuint, a, b: Stuint) =
+  ## Addition for multi-precision unsigned int
+  var carry = Carry(0)
+  for wr, wa, wb in leastToMostSig(r, a, b):
+    addC(carry, wr, wa, wb, carry)
+  r.clearExtraBits()
 
-func `+=`*(x: var UintImpl, y: UintImpl) {.inline.}=
+func `+=`*(a: var Stuint, b: Stuint) =
   ## In-place addition for multi-precision unsigned int
-  type SubTy = type x.lo
-  x.lo += y.lo
-  x.hi += (x.lo < y.lo).toSubtype(SubTy) + y.hi # This helps the compiler produce ADC (add with carry)
+  var carry = Carry(0)
+  for wa, wb in leastToMostSig(a, b):
+    addC(carry, wa, wa, wb, carry)
+  a.clearExtraBits()
 
-func `+`*(x, y: UintImpl): UintImpl {.inline.}=
-  # Addition for multi-precision unsigned int
-  result = x
-  result += y
+func diff*(r: var Stuint, a, b: Stuint) =
+  ## Substraction for multi-precision unsigned int
+  var borrow = Borrow(0)
+  for wr, wa, wb in leastToMostSig(r, a, b):
+    subB(borrow, wr, wa, wb, borrow)
+  r.clearExtraBits()
 
-func `-`*(x, y: UintImpl): UintImpl {.inline.}=
-  # Substraction for multi-precision unsigned int
-  type SubTy = type x.lo
-  result.lo = x.lo - y.lo
-  result.hi = x.hi - y.hi - (x.lo < y.lo).toSubtype(SubTy) # This might (?) help the compiler produce SBB (sub with borrow)
-
-func `-=`*(x: var UintImpl, y: UintImpl) {.inline.}=
+func `-=`*(a: var Stuint, b: Stuint) =
   ## In-place substraction for multi-precision unsigned int
-  x = x - y
+  var borrow = Borrow(0)
+  for wa, wb in leastToMostSig(a, b):
+    subB(borrow, wa, wa, wb, borrow)
+  a.clearExtraBits()
 
-func inc*(x: var UintImpl){.inline.}=
-  x += one(type x)
+func inc*(a: var Stuint, w: Word = 1) =
+  var carry = Carry(0)
+  when cpuEndian == littleEndian:
+    addC(carry, a.limbs[0], a.limbs[0], w, carry)
+    for i in 1 ..< a.limbs.len:
+      addC(carry, a.limbs[i], a.limbs[i], 0, carry)
+  else:
+    {.error: "Not implemented.".}
+  a.clearExtraBits()
+
+func sum*(r: var Stuint, a: Stuint, b: SomeUnsignedInt) =
+  ## Addition for multi-precision unsigned int
+  ## with an unsigned integer
+  r = a
+  r.inc(Word(b))
+
+func `+=`*(a: var Stuint, b: SomeUnsignedInt) =
+  ## In-place addition for multi-precision unsigned int
+  ## with an unsigned integer
+  a.inc(Word(b))
